@@ -8,84 +8,101 @@ class ShapeDetector:
 
     def detect_shape(self, contour):
         """Konturun düzgünlüğünü ve şeklini tespit et."""
-        hull = cv2.convexHull(contour)
-        epsilon = self.epsilon_factor * cv2.arcLength(hull, True)
-        approx = cv2.approxPolyDP(hull, epsilon, True)
+        hull = cv2.convexHull(contour)  # Gürültüyü önlemek için dış çerçeve
+        epsilon = self.epsilon_factor * cv2.arcLength(hull, True)  # Dinamik epsilon
+        approx = cv2.approxPolyDP(hull, epsilon, True)  # Basitleştirilmiş kontur
 
         corners = len(approx)
         area = cv2.contourArea(hull)
         perimeter = cv2.arcLength(hull, True)
 
-        # Alan ve çevre oranı ile filtreleme
-        if perimeter == 0 or area < self.min_area or area > self.max_area:
-            return None
 
-        # Kontur boyutu kontrolü (bounding box)
-        x, y, w, h = cv2.boundingRect(approx)
-        if w < self.min_area or h < self.max_area:
-             return None  # Çok küçük konturları atla
+        # Circularity kontrolüne öncelik verelim
+
+        if perimeter > 0:
+            circularity = (4 * np.pi * area) / (perimeter ** 2)
+            if 0.85 <= circularity <= 1.2:
+                return "Circle"
+
 
         # Şekil türünü belirle
         if corners == 3:
             return "Triangle"
         elif corners == 4:
-            x, y, w, h = cv2.boundingRect(approx)
-            aspect_ratio = float(w) / h
+            aspect_ratio = float(cv2.boundingRect(approx)[2]) / cv2.boundingRect(approx)[3]
             return "Square" if 0.9 <= aspect_ratio <= 1.1 else "Rectangle"
-        elif corners == 5:
-            return "Pentagon"
-        elif 6 <= corners <= 8:
+        elif 5 <= corners <= 6:
+            return "Pentagon" if corners == 5 else "Hexagon"
+        elif 7 <= corners <= 8:
             return "Polygon"
         else:
-            circularity = (4 * np.pi * area) / (perimeter ** 2)
-            if 0.75 <= circularity <= 1.2:
-                return "Circle"
+            return  "Undetected shape"
         return None
 
-    def process_frame(self, mask, frame, color_name):
+    def process_frame(self, mask, frame):
         # Konturları bul
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+        print(f"Bulunan kontur sayısı: {len(contours)}")  # Kontur sayısını yazdır
+
         for contour in contours:
             area = cv2.contourArea(contour)
+            #(f"Kontur Alanı: {area}")  # Her konturun alanını yazdır
+
             if area > self.min_area:
                 shape = self.detect_shape(contour)  # Şekli tespit et
 
-                if shape:  # Şekil algılandıysa kontur çiz ve adını ekrana yaz
-                    x, y, w, h = cv2.boundingRect(contour)
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    cv2.putText(frame, shape, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                                0.6, (0, 255, 0), 2, cv2.LINE_AA)
+                if shape:
+                    # Konturu sadeleştirilmiş haliyle çiz
+                    epsilon = self.epsilon_factor * cv2.arcLength(contour, True)
+                    approx = cv2.approxPolyDP(contour, epsilon, True)
+
+                    # Konturu çiz
+                    cv2.drawContours(frame, [approx], -1, (0, 255, 0), 2)
+
+                    # Şekil ismini sol üst köşeye yazdır
+                    cv2.putText(frame, shape, (10, 30),  # Sol üst köşe
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
+
+
 
 
 
         return frame
 
 
-def get_color(colorname):
-    if colorname == "red":
-        lower1, upper1 = lower_red()
-        lower2, upper2 = upper_red()
-        return (lower1, upper1), (lower2, upper2)
-    elif colorname == "green":
-        return color_green()
-    else:
-        raise ValueError("Choose 'red' or 'green' as the color name.")
 
-def lower_red():
-    lower_red1 = (0, 120, 70)  # İlk kırmızı aralık alt sınır
-    upper_red1 = (10, 255, 255)  # İlk kırmızı aralık üst sınır
-    return lower_red1, upper_red1
 
-def upper_red():
-    lower_red2 = (170, 120, 70)  # İkinci kırmızı aralık alt sınır
-    upper_red2 = (180, 255, 255)  # İkinci kırmızı aralık üst sınır
-    return lower_red2, upper_red2
+def get_red_mask(hsv_image):
+    lower_red1 = np.array([0, 160, 120])
+    upper_red1 = np.array([10, 255, 255])
 
-def color_green():
-    lower_green = (35, 100, 50)  # Yeşil için alt sınır
-    upper_green = (85, 255, 255)  # Yeşil için üst sınır
-    return lower_green, upper_green
+    lower_red2 = np.array([170, 160, 120])
+    upper_red2 = np.array([180, 255, 255])
+
+    mask1 = cv2.inRange(hsv_image, lower_red1, upper_red1)
+    mask2 = cv2.inRange(hsv_image, lower_red2, upper_red2)
+
+    red_mask = cv2.bitwise_or(mask1, mask2)
+
+    # Küçük parazitleri temizlemek için erosion ve dilation işlemi
+    kernel = np.ones((3, 3), np.uint8)
+    red_mask = cv2.erode(red_mask, kernel, iterations=1)
+    red_mask = cv2.dilate(red_mask, kernel, iterations=2)
+
+    return red_mask
+
+def get_green_mask(hsv_image):
+    lower_green = np.array([35, 100, 50])
+    upper_green = np.array([85, 255, 255])
+
+    green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
+
+    kernel = np.ones((3, 3), np.uint8)
+    green_mask = cv2.erode(green_mask, kernel, iterations=1)
+    green_mask = cv2.dilate(green_mask, kernel, iterations=2)
+
+    return green_mask
 
 def create_rectangle(cap, scale, aspect_ratio):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
