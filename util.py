@@ -16,14 +16,12 @@ class ShapeDetector:
         area = cv2.contourArea(hull)
         perimeter = cv2.arcLength(hull, True)
 
-
         # Circularity kontrolüne öncelik verelim
 
         if perimeter > 0:
             circularity = (4 * np.pi * area) / (perimeter ** 2)
-            if 0.85 <= circularity <= 1.2:
-                return "Circle"
-
+            if 0.95 <= circularity <= 1.05:
+                return "Circle"  # Daire ve sadeleştirilmiş konturu döndür
 
         # Şekil türünü belirle
         if corners == 3:
@@ -37,72 +35,81 @@ class ShapeDetector:
             return "Polygon"
         else:
             return  "Undetected shape"
-        return None
+
+    def center_shape(self, contour):
+        """Konturun ağırlık merkezini (centroid) hesaplar."""
+        M = cv2.moments(contour)  # Kontur için momentleri hesapla
+        if M["m00"] != 0:  # Momentlerin sıfır olmadığını kontrol et (bölme hatası önlemek için)
+            cx = int(M["m10"] / M["m00"])  # x koordinatı
+            cy = int(M["m01"] / M["m00"])  # y koordinatı
+            return (cx, cy)
+        return None  # Ağırlık merkezi hesaplanamazsa None döndür
+
+    def draw_shape(self, frame, shape, contour):
+        """Şekil türüne göre kontur ve merkez çizimi."""
+        epsilon = self.epsilon_factor * cv2.arcLength(contour, True)
+
+        if shape == "Circle":
+            (x, y), radius = cv2.minEnclosingCircle(contour)
+            center = (int(x), int(y))
+            radius = int(radius)
+            cv2.circle(frame, center, radius, (255, 0, 0), 2)
+        else:
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+            cv2.drawContours(frame, [approx], -1, (255, 0, 0), 2)
+
+        center = self.center_shape(contour)
+        if center: cv2.circle(frame, center, 2, (255, 0, 0), -1, lineType=cv2.LINE_AA)  # Küçük mavi nokta
+
+
+
+        cv2.putText(frame, shape, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
+
 
     def process_frame(self, mask, frame):
         # Konturları bul
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        print(f"Bulunan kontur sayısı: {len(contours)}")  # Kontur sayısını yazdır
-
         for contour in contours:
             area = cv2.contourArea(contour)
-            #(f"Kontur Alanı: {area}")  # Her konturun alanını yazdır
-
             if area > self.min_area:
                 shape = self.detect_shape(contour)  # Şekli tespit et
-
                 if shape:
-                    # Konturu sadeleştirilmiş haliyle çiz
-                    epsilon = self.epsilon_factor * cv2.arcLength(contour, True)
-                    approx = cv2.approxPolyDP(contour, epsilon, True)
-
-                    # Konturu çiz
-                    cv2.drawContours(frame, [approx], -1, (0, 255, 0), 2)
-
-                    # Şekil ismini sol üst köşeye yazdır
-                    cv2.putText(frame, shape, (10, 30),  # Sol üst köşe
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
-
-
-
-
-
-        return frame
-
-
+                    self.draw_shape(frame, shape, contour)
+        return  frame
 
 
 def get_red_mask(hsv_image):
-    lower_red1 = np.array([0, 160, 120])
-    upper_red1 = np.array([10, 255, 255])
+        lower_red1 = np.array([0, 160, 120])
+        upper_red1 = np.array([10, 255, 255])
 
-    lower_red2 = np.array([170, 160, 120])
-    upper_red2 = np.array([180, 255, 255])
+        lower_red2 = np.array([170, 160, 120])
+        upper_red2 = np.array([180, 255, 255])
 
-    mask1 = cv2.inRange(hsv_image, lower_red1, upper_red1)
-    mask2 = cv2.inRange(hsv_image, lower_red2, upper_red2)
+        mask1 = cv2.inRange(hsv_image, lower_red1, upper_red1)
+        mask2 = cv2.inRange(hsv_image, lower_red2, upper_red2)
 
-    red_mask = cv2.bitwise_or(mask1, mask2)
+        red_mask = cv2.bitwise_or(mask1, mask2)
 
-    # Küçük parazitleri temizlemek için erosion ve dilation işlemi
-    kernel = np.ones((3, 3), np.uint8)
-    red_mask = cv2.erode(red_mask, kernel, iterations=1)
-    red_mask = cv2.dilate(red_mask, kernel, iterations=2)
+        # Küçük parazitleri temizlemek için erosion ve dilation işlemi
+        kernel = np.ones((3, 3), np.uint8)
+        red_mask = cv2.erode(red_mask, kernel, iterations=1)
+        red_mask = cv2.dilate(red_mask, kernel, iterations= 1)
 
-    return red_mask
+        return red_mask
 
 def get_green_mask(hsv_image):
-    lower_green = np.array([35, 100, 50])
-    upper_green = np.array([85, 255, 255])
+        lower_green = np.array([35, 100, 50])
+        upper_green = np.array([85, 255, 255])
 
-    green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
+        green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
 
-    kernel = np.ones((3, 3), np.uint8)
-    green_mask = cv2.erode(green_mask, kernel, iterations=1)
-    green_mask = cv2.dilate(green_mask, kernel, iterations=2)
+        kernel = np.ones((3, 3), np.uint8)
+        green_mask = cv2.erode(green_mask, kernel, iterations=1)
+        green_mask = cv2.dilate(green_mask, kernel, iterations=1)
 
-    return green_mask
+        return green_mask
 
 def create_rectangle(cap, scale, aspect_ratio):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
