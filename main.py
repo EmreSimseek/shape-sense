@@ -4,7 +4,7 @@ import  cv2
 cap = cv2.VideoCapture(0)
 top_left, bottom_right = create_rectangle(cap, scale=0.4, aspect_ratio=1.5)
 
-detector = ShapeDetector(min_area=500)
+detector = ShapeDetector()
 color_name = "red"
 while True:
     ret, frame = cap.read()
@@ -35,14 +35,11 @@ while True:
         print("Geçersiz renk seçimi!")
         break
 
-    processed_frame = detector.process_frame(mask,frame)
+    processed_frame = detector.process_frame(mask,frame,top_left,bottom_right)
 
     # Görüntüleri göster
     cv2.imshow("Maskfirst", mask)
     cv2.imshow("fm", processed_frame)
-
-
-
 
 # Kamera serbest bırak ve pencereleri kapat
 cap.release()
